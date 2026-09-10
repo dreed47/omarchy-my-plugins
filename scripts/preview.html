@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My Plugins preview</title>
+<style>
+  html, body { margin: 0; background: #1a2228; }
+  body {
+    font-family: "Iosevka", "JetBrains Mono", "CaskaydiaCove Nerd Font", ui-monospace, monospace;
+    color: #e6d5c3;
+  }
+  .stage {
+    width: 900px;
+    padding: 28px 32px 36px;
+    box-sizing: border-box;
+  }
+  .bar {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    color: #cbb8a4;
+    font-size: 15px;
+    padding: 0 6px 10px;
+  }
+  .bar .active {
+    color: #e6d5c3;
+    border-bottom: 2px solid #d9a066;
+    padding-bottom: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .mini { display: inline-block; vertical-align: -2px; }
+  .card {
+    background: #101820;
+    border: 1px solid #c4a484;
+    border-radius: 6px;
+    padding: 22px 24px 16px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  }
+  .hero {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .glyph { font-size: 34px; }
+  .title { font-size: 22px; font-weight: 700; }
+  .sub {
+    font-size: 11px;
+    letter-spacing: 1.4px;
+    color: #8f7f70;
+    font-weight: 700;
+    margin-top: 3px;
+  }
+  .hero-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .count {
+    font-size: 42px;
+    font-weight: 700;
+  }
+  .settings {
+    border: 1px solid #e6d5c3;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+  }
+  .totals {
+    display: flex;
+    gap: 22px;
+    margin: 16px 0 14px;
+    font-size: 13px;
+  }
+  .row {
+    padding: 8px 10px;
+    border-radius: 6px;
+  }
+  .row.sel { background: rgba(217,160,102,.12); }
+  .row-top, .row-bot {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .name { font-weight: 700; font-size: 14px; }
+  .meta { color: #8f7f70; font-size: 12px; }
+  .row-bot { margin-top: 3px; color: #8f7f70; font-size: 12px; }
+  .stats span { margin-right: 16px; }
+  .unlisted .meta { color: #c46c6c; }
+  .hint {
+    margin-top: 14px;
+    color: #8f7f70;
+    font-size: 11px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="bar">
+      <span>100%</span>
+      <span>74%</span>
+      <span>19</span>
+      <span class="active"><svg class="mini" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-2 .9-2 2v3.8h1.5c1.5 0 2.7 1.2 2.7 2.7s-1.2 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.5 1.2-2.7 2.7-2.7s2.7 1.2 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg> 5 · 272</span>
+    </div>
+    <div class="card">
+      <div class="hero">
+        <div class="glyph"><svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path fill="currentColor" d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-2 .9-2 2v3.8h1.5c1.5 0 2.7 1.2 2.7 2.7s-1.2 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.5 1.2-2.7 2.7-2.7s2.7 1.2 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg></div>
+        <div>
+          <div class="title">My Plugins</div>
+          <div class="sub">DREED47  ·  VIEWS</div>
+        </div>
+        <div class="hero-right">
+          <div class="count">5</div>
+          <div class="settings">Settings</div>
+        </div>
+      </div>
+      <div class="totals">
+        <div>272  views</div>
+        <div>75  copies</div>
+        <div>8  hearts</div>
+        <div>0  stars</div>
+      </div>
+      <div class="row sel">
+        <div class="row-top">
+          <div class="name">Print Center</div>
+          <div class="meta">v0.4.1  ·  verified</div>
+        </div>
+        <div class="row-bot">
+          <div class="stats"><span>143 views</span><span>48 copies</span><span>4 hearts</span><span>0 stars</span></div>
+          <div>1d</div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="row-top">
+          <div class="name">Session Restore</div>
+          <div class="meta">v2.2.0  ·  verified</div>
+        </div>
+        <div class="row-bot">
+          <div class="stats"><span>93 views</span><span>22 copies</span><span>2 hearts</span><span>0 stars</span></div>
+          <div>2d</div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="row-top">
+          <div class="name">Todoist Shopping List</div>
+          <div class="meta">v1.0.0  ·  verified</div>
+        </div>
+        <div class="row-bot">
+          <div class="stats"><span>36 views</span><span>5 copies</span><span>2 hearts</span><span>0 stars</span></div>
+          <div>today</div>
+        </div>
+      </div>
+      <div class="row unlisted">
+        <div class="row-top">
+          <div class="name">MakerWorld</div>
+          <div class="meta">v0.3.0  ·  not listed</div>
+        </div>
+        <div class="row-bot">
+          <div class="stats"><span>— views</span><span>— copies</span><span>— hearts</span><span>— stars</span></div>
+          <div>local</div>
+        </div>
+      </div>
+      <div class="row unlisted">
+        <div class="row-top">
+          <div class="name">Tempest Weather</div>
+          <div class="meta">v0.4.1  ·  not listed</div>
+        </div>
+        <div class="row-bot">
+          <div class="stats"><span>— views</span><span>— copies</span><span>— hearts</span><span>— stars</span></div>
+          <div>local</div>
+        </div>
+      </div>
+      <div class="hint">Copies are marketplace install-command copies, not installs.  Enter listing  ·  o repo  ·  s settings  ·  t sort  ·  r refresh</div>
+    </div>
+  </div>
+</body>
+</html>

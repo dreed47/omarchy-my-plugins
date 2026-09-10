@@ -1,0 +1,16 @@
+{
+  "name": "omarchy-my-plugins",
+  "version": "0.1.2",
+  "description": "Omarchy bar dashboard of the plugins you own and their marketplace stats.",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/model.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dreed47/omarchy-my-plugins.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

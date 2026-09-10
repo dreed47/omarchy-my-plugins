@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.dreed47.my-plugins",
+  "name": "My Plugins",
+  "version": "0.1.2",
+  "author": "David Reed",
+  "license": "MIT",
+  "description": "A bar dashboard of the Omarchy plugins you own: marketplace views, hearts, and install-command copies, plus GitHub stars and verification. Filters the public catalog to your GitHub user (auto-detected from plugins already on this machine, or set githubUser). Unlisted local plugins still appear, without fake stats. Copies are marketplace command copies, not installs.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "My Plugins",
+    "description": "Views, hearts, and copies for the Omarchy plugins you publish. The pill shows how many you have listed; the popup is the per-plugin breakdown.",
+    "category": "Info",
+    "aliases": [
+      "my plugins",
+      "plugin stats",
+      "marketplace stats",
+      "owner dashboard"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "githubUser": "",
+      "authorName": "",
+      "idPrefix": "",
+      "sort": "Views",
+      "showUnlisted": "On",
+      "barCount": "On",
+      "barViews": "On",
+      "barCopies": "Off",
+      "barHearts": "Off",
+      "barStars": "Off"
+    },
+    "schema": [
+      {
+        "key": "githubUser",
+        "type": "string",
+        "label": "GitHub username (blank = auto-detect from installed plugins)"
+      },
+      {
+        "key": "authorName",
+        "type": "string",
+        "label": "Also match this marketplace author name (optional)"
+      },
+      {
+        "key": "idPrefix",
+        "type": "string",
+        "label": "Also match plugin ids with this prefix (optional)"
+      },
+      {
+        "key": "sort",
+        "type": "enum",
+        "label": "Default sort",
+        "options": [
+          "Views",
+          "Copies",
+          "Hearts",
+          "Stars",
+          "Newest",
+          "Name"
+        ],
+        "defaultValue": "Views",
+        "description": "Copies are marketplace install-command copies, not installs. Views, copies, and hearts are cumulative totals."
+      },
+      {
+        "key": "showUnlisted",
+        "type": "enum",
+        "label": "Show local plugins that are not marketplace-listed",
+        "options": [
+          "On",
+          "Off"
+        ],
+        "defaultValue": "On",
+        "description": "Installed plugins that match you but have no catalog entry still appear, with em dashes instead of stats."
+      },
+      {
+        "key": "barCount",
+        "type": "enum",
+        "label": "Show plugin count on the bar",
+        "options": ["On", "Off"],
+        "defaultValue": "On"
+      },
+      {
+        "key": "barViews",
+        "type": "enum",
+        "label": "Show views on the bar",
+        "options": ["On", "Off"],
+        "defaultValue": "On"
+      },
+      {
+        "key": "barCopies",
+        "type": "enum",
+        "label": "Show copies on the bar",
+        "options": ["On", "Off"],
+        "defaultValue": "Off"
+      },
+      {
+        "key": "barHearts",
+        "type": "enum",
+        "label": "Show hearts on the bar",
+        "options": ["On", "Off"],
+        "defaultValue": "Off"
+      },
+      {
+        "key": "barStars",
+        "type": "enum",
+        "label": "Show GitHub stars on the bar",
+        "options": ["On", "Off"],
+        "defaultValue": "Off"
+      }
+    ]
+  }
+}
