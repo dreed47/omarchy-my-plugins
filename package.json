@@ -1,6 +1,6 @@
 {
   "name": "omarchy-my-plugins",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Omarchy bar dashboard of the plugins you own and their marketplace stats.",
   "private": true,
   "scripts": {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 — 2026-09-10
+
+- Include this dashboard in the owner's list and totals. Other users still do not see it, because it only matches `io.github.<their-user>.*`.
+
 ## 0.1.2 — 2026-09-10
 
 - Settings toggles for which totals appear on the bar: count, views, copies, hearts, stars.

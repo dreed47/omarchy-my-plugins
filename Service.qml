@@ -150,11 +150,7 @@ Item {
     root.owner = root.currentOwner()
     var owned = Model.ownedPlugins(joined, root.owner)
     if (root.showUnlisted()) owned = Model.mergeLocal(owned, root.installed, root.owner)
-    var kept = []
-    for (var i = 0; i < owned.length; i++) {
-      if (owned[i].id !== root.pluginId) kept.push(owned[i])
-    }
-    owned = Model.sort(kept, Model.sortKey(root.sortMode))
+    owned = Model.sort(owned, Model.sortKey(root.sortMode))
     root.ownedRows = owned
     root.totals = Model.totals(owned)
     root.barFlags = root.currentBarFlags()
