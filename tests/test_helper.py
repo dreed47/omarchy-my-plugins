@@ -152,9 +152,9 @@ class HelperTests(unittest.TestCase):
             self.assertIn("io.github.dreed47.tempest-weather", found)
             self.assertNotIn("io.github.dreed47.open-dir", found)
 
-    def test_scan_skips_symlink_plugin_dirs(self):
+    def test_scan_resolves_one_hop_symlink_under_home(self):
         with tempfile.TemporaryDirectory() as home:
-            os.chmod(home, 0o700)
+            os.chmod(home, 0o755)
             plugins = Path(home) / ".config" / "omarchy" / "plugins"
             real = plugins / "io.github.dreed47.tempest-weather"
             real.mkdir(parents=True)
@@ -166,15 +166,33 @@ class HelperTests(unittest.TestCase):
             }))
             target = Path(home) / "code" / "omarchy-my-plugins"
             target.mkdir(parents=True)
+            os.chmod(Path(home) / "code", 0o755)
+            os.chmod(target, 0o700)
             (target / "manifest.json").write_text(json.dumps({
                 "id": "io.github.dreed47.my-plugins",
                 "name": "My Plugins",
-                "version": "0.1.4",
+                "version": "0.1.5",
             }))
             (plugins / "io.github.dreed47.my-plugins").symlink_to(target)
             found = helper.scan_installed(home, str(plugins))
             self.assertIn("io.github.dreed47.tempest-weather", found)
-            self.assertNotIn("io.github.dreed47.my-plugins", found)
+            self.assertIn("io.github.dreed47.my-plugins", found)
+
+    def test_scan_skips_symlink_outside_home(self):
+        with tempfile.TemporaryDirectory() as home:
+            os.chmod(home, 0o755)
+            plugins = Path(home) / ".config" / "omarchy" / "plugins"
+            plugins.mkdir(parents=True)
+            with tempfile.TemporaryDirectory() as outside:
+                os.chmod(outside, 0o700)
+                (Path(outside) / "manifest.json").write_text(json.dumps({
+                    "id": "io.github.dreed47.evil",
+                    "name": "Evil",
+                    "version": "1.0.0",
+                }))
+                (plugins / "io.github.dreed47.evil").symlink_to(outside)
+                found = helper.scan_installed(home, str(plugins))
+                self.assertNotIn("io.github.dreed47.evil", found)
 
 
 if __name__ == "__main__":

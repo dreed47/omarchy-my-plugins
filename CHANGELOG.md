@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 — 2026-09-12
+
+- Count git worktree installs: a plugin directory that is one absolute symlink under `$HOME` is included after walking the target from HOME with the same ownership and no-group-write checks. Relative links and targets outside HOME stay skipped.
+
 ## 0.1.5 — 2026-09-12
 
 - Reject group- or world-writable directories on the HOME → state/plugins walk. Plugin-owned state leaf is forced to `0700` and cache files to `0600` via `fchmod` on the opened fd (survives umask). Shared ancestors are not chmod'd. Group-writable plugin checkouts are skipped, not followed.
