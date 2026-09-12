@@ -461,6 +461,57 @@ def repo_guess(pid: str) -> str:
     return f"https://github.com/{user}/omarchy-{slug}"
 
 
+def sanitize_github_repo_url(url: str) -> str:
+    s = str(url or "").strip()
+    if not s or any(c in s for c in " \t\r\n"):
+        return ""
+    m = re.fullmatch(r"git@github\.com:([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+?)(?:\.git)?", s)
+    if not m:
+        m = re.fullmatch(
+            r"https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?",
+            s,
+        )
+    if not m:
+        return ""
+    return f"https://github.com/{m.group(1)}/{m.group(2)}"
+
+
+def parse_origin_url(config: bytes) -> str:
+    try:
+        text = config.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+    in_origin = False
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            in_origin = s.lower() == '[remote "origin"]'
+            continue
+        if in_origin:
+            key, sep, val = s.partition("=")
+            if sep and key.strip().lower() == "url":
+                return sanitize_github_repo_url(val.strip())
+    return ""
+
+
+def origin_from_checkout(dir_fd: int) -> str:
+    try:
+        git_fd = os.open(
+            ".git",
+            os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
+            dir_fd=dir_fd,
+        )
+    except OSError:
+        return ""
+    try:
+        raw = read_at(git_fd, "config", 65536)
+    except (Fail, FileNotFoundError, OSError):
+        return ""
+    finally:
+        os.close(git_fd)
+    return parse_origin_url(raw)
+
+
 def open_plugin_checkout(home: str, plugins_fd: int, name: str) -> int | None:
     """Open a plugin directory without walking through a planted symlink.
 
@@ -531,6 +582,7 @@ def scan_installed(home: str, plugins_dir: str) -> dict[str, Any]:
                     "version": str(data.get("version") or ""),
                     "author": str(data.get("author") or ""),
                     "dir": name,
+                    "repo": origin_from_checkout(child),
                 }
                 n += 1
             except (Fail, FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError, OSError):
@@ -569,7 +621,7 @@ def merge_local(
                 "description": "",
                 "author": rec.get("author") or "",
                 "version": rec.get("version") or "",
-                "repo": repo_guess(rec["id"]),
+                "repo": rec.get("repo") or repo_guess(rec["id"]),
                 "listedAt": "",
                 "kind": "",
                 "category": "",

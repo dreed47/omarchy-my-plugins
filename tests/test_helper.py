@@ -17,6 +17,41 @@ loader.exec_module(helper)
 
 
 class HelperTests(unittest.TestCase):
+    def test_origin_url_from_git_config(self):
+        self.assertEqual(
+            helper.sanitize_github_repo_url("https://github.com/dreed47/tempest-weather.git"),
+            "https://github.com/dreed47/tempest-weather",
+        )
+        self.assertEqual(
+            helper.sanitize_github_repo_url("git@github.com:dreed47/tempest-weather.git"),
+            "https://github.com/dreed47/tempest-weather",
+        )
+        self.assertEqual(helper.sanitize_github_repo_url("https://evil.example/x"), "")
+        self.assertEqual(helper.sanitize_github_repo_url("https://github.com/dreed47/tempest-weather.git\nrm"), "")
+        cfg = b'[remote "origin"]\n\turl = https://github.com/dreed47/tempest-weather.git\n'
+        self.assertEqual(helper.parse_origin_url(cfg), "https://github.com/dreed47/tempest-weather")
+
+    def test_scan_uses_git_origin_not_omarchy_prefix_guess(self):
+        with tempfile.TemporaryDirectory() as home:
+            os.chmod(home, 0o755)
+            plugins = Path(home) / ".config" / "omarchy" / "plugins"
+            plugin = plugins / "io.github.dreed47.tempest-weather"
+            git = plugin / ".git"
+            git.mkdir(parents=True)
+            (plugin / "manifest.json").write_text(json.dumps({
+                "id": "io.github.dreed47.tempest-weather",
+                "name": "Tempest Weather",
+                "version": "0.4.1",
+            }))
+            (git / "config").write_text(
+                '[remote "origin"]\n\turl = https://github.com/dreed47/tempest-weather.git\n'
+            )
+            found = helper.scan_installed(home, str(plugins))
+            self.assertEqual(
+                found["io.github.dreed47.tempest-weather"]["repo"],
+                "https://github.com/dreed47/tempest-weather",
+            )
+
     def test_normalize_github_user(self):
         self.assertEqual(helper.normalize_github_user("@dreed47"), "dreed47")
         self.assertEqual(helper.normalize_github_user("https://github.com/dreed47/omarchy-my-plugins"), "dreed47")

@@ -271,7 +271,8 @@ function parseInstalled(text) {
       name: String(row.name || prettyName(row.id)),
       version: String(row.version || ""),
       author: String(row.author || ""),
-      dir: String(row.dir || "")
+      dir: String(row.dir || ""),
+      repo: String(row.repo || "")
     }
     n++
   }
@@ -310,7 +311,7 @@ function mergeLocal(owned, installed, owner) {
       description: "",
       author: rec2.author,
       version: rec2.version,
-      repo: repoGuess(rec2.id),
+      repo: rec2.repo || repoGuess(rec2.id),
       listedAt: "",
       kind: "",
       category: "",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7 — 2026-09-12
+
+- Unlisted plugin repo links come from `.git/config` origin (so Tempest Weather opens `dreed47/tempest-weather`, not a guessed `omarchy-tempest-weather`). The guess remains only when there is no origin.
+
 ## 0.1.6 — 2026-09-12
 
 - Count git worktree installs: a plugin directory that is one absolute symlink under `$HOME` is included after walking the target from HOME with the same ownership and no-group-write checks. Relative links and targets outside HOME stay skipped.

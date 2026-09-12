@@ -95,6 +95,14 @@ test("inferGithubUser picks the most common installed io.github user", () => {
   assert.equal(Model.inferGithubUser(installed, "io.github.dreed47.my-plugins"), "dreed47")
 })
 
+test("mergeLocal prefers recorded repo over omarchy- prefix guess", () => {
+  const installed = Model.parseInstalled(
+    '{"id":"io.github.dreed47.tempest-weather","name":"Tempest Weather","version":"0.4.1","author":"David Reed","repo":"https://github.com/dreed47/tempest-weather"}'
+  )
+  const merged = Model.mergeLocal([], installed, { githubUser: "dreed47" })
+  assert.equal(merged[0].repo, "https://github.com/dreed47/tempest-weather")
+})
+
 test("mergeLocal adds unlisted owner plugins without inventing stats", () => {
   const ownedRows = owned()
   const installed = Model.parseInstalled([
