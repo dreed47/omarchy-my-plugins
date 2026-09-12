@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.dreed47.my-plugins",
   "name": "My Plugins",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "author": "David Reed",
   "license": "MIT",
   "description": "A bar dashboard of the Omarchy plugins you own: marketplace views, hearts, and install-command copies, plus GitHub stars and verification. Filters the public catalog to your GitHub user (auto-detected from plugins already on this machine, or set githubUser). Unlisted local plugins still appear, without fake stats. Copies are marketplace command copies, not installs.",

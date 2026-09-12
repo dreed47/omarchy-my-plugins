@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 — 2026-09-11
+
+- Address marketplace supply-chain review: one `/usr/bin/python3 -I` helper with a closed environment, no `bash -c`, host-allowlisted HTTPS, hard process deadline, bounded stdout, and cache I/O descriptor-relative under an ownership-checked no-follow directory.
+
 ## 0.1.3 — 2026-09-10
 
 - Include this dashboard in the owner's list and totals. Other users still do not see it, because it only matches `io.github.<their-user>.*`.

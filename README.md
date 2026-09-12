@@ -86,7 +86,7 @@ omarchy bar set io.github.dreed47.my-plugins showUnlisted On
 | `barHearts` | `Off` | Hearts total on the bar pill |
 | `barStars` | `Off` | GitHub stars total on the bar pill |
 
-Catalog refreshes at most every 6 hours (conditional GET). Stats refresh every 30 minutes. Cache lives in `~/.local/state/omarchy/my-plugins/`.
+Catalog refreshes at most every 6 hours (conditional GET). Stats refresh every 30 minutes. Cache lives in `~/.local/state/omarchy/my-plugins/`, created and opened without following symlinks. Network and filesystem work run in `scripts/my-plugins` as `/usr/bin/python3 -I` with `PATH=/usr/bin:/bin` and no inherited environment.
 
 ## Remove
 
@@ -100,4 +100,4 @@ rm -rf ~/.local/state/omarchy/my-plugins
 ## Requirements
 
 - Omarchy 4.x (`omarchy-shell`)
-- `curl` and `jq` (both ship with Omarchy)
+- `/usr/bin/python3` (ships with Omarchy). The helper uses only the standard library.

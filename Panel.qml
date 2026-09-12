@@ -33,7 +33,7 @@ Panel {
   readonly property string guessedUser: svc ? String(svc.guessedUser || "") : ""
   readonly property bool userIsGuessed: svc ? svc.userIsGuessed !== false : true
   readonly property string lastError: svc ? String(svc.lastError || "") : ""
-  readonly property bool fetching: svc ? (svc.fetchingCatalog === true || svc.fetchingStats === true) : false
+  readonly property bool fetching: svc ? svc.fetching === true : false
   readonly property bool ready: svc ? svc.ready === true : false
 
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -152,12 +152,14 @@ Panel {
     var current = Model.sortKey(svc ? svc.sortMode : "views")
     var next = Model.nextSort(current)
     if (sortProc.running) return
-    sortProc.command = ["omarchy-bar", "set", root.ipcTarget, "sort", Model.sortOption(next)]
+    sortProc.command = ["/usr/bin/omarchy-bar", "set", root.ipcTarget, "sort", Model.sortOption(next)]
     sortProc.running = true
   }
 
   Process {
     id: sortProc
+    clearEnvironment: true
+    environment: ({ PATH: "/usr/bin:/bin", LC_ALL: "C" })
   }
 
   function persistSettings(values) {

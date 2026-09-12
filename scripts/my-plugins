@@ -1,0 +1,673 @@
+#!/usr/bin/python3
+"""Hardened I/O helper for My Plugins.
+
+Invoked as `/usr/bin/python3 -I scripts/my-plugins sync ...`. Does not
+consult PATH, HOME, or XDG. Paths arrive as absolute argv. Cache lives
+under an ownership-checked, no-follow directory and is opened
+descriptor-relative. Network is https to two allowlisted hosts, no
+redirects, with a hard byte cap and timeout.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import ssl
+import stat
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
+
+MAX_CATALOG_BYTES = 16 * 1024 * 1024
+MAX_STATS_BYTES = 1 * 1024 * 1024
+MAX_INTERNAL_BYTES = 64 * 1024
+MAX_MANIFEST_BYTES = 8192
+MAX_INSTALLED = 256
+MAX_STDOUT_BYTES = 256 * 1024
+CATALOG_MAX_AGE_SEC = 21600
+STATS_MAX_AGE_SEC = 1800
+FETCH_TIMEOUT_SEC = 25
+
+CATALOG_URL = "https://plugins.omarchy.org/catalog.json"
+STATS_URL = "https://api.omarchyplugins.com/v1/stats"
+ALLOWED = {
+    "plugins.omarchy.org": "/catalog.json",
+    "api.omarchyplugins.com": "/v1/stats",
+}
+
+O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
+O_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+
+
+class Fail(Exception):
+    pass
+
+
+def uid() -> int:
+    return os.getuid()
+
+
+def _is_owned_dir(st: os.stat_result) -> None:
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        raise Fail("not an owned directory")
+    if st.st_uid != uid():
+        raise Fail("directory not owned by the user")
+
+
+def _is_owned_file(st: os.stat_result) -> None:
+    if not stat.S_ISREG(st.st_mode):
+        raise Fail("not a regular file")
+    if st.st_uid != uid():
+        raise Fail("file not owned by the user")
+
+
+def open_home(home: str) -> int:
+    if not home or not home.startswith("/") or "\x00" in home:
+        raise Fail("home must be an absolute filesystem path")
+    if ".." in home.split("/"):
+        raise Fail("home must not contain ..")
+    fd = os.open(home, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    try:
+        _is_owned_dir(os.fstat(fd))
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def rel_parts_under_home(home: str, abs_path: str) -> list[str]:
+    if not abs_path or not abs_path.startswith("/") or "\x00" in abs_path:
+        raise Fail("path must be an absolute filesystem path")
+    home_n = home.rstrip("/")
+    path_n = abs_path.rstrip("/")
+    if path_n == home_n:
+        return []
+    prefix = home_n + "/"
+    if not path_n.startswith(prefix):
+        raise Fail("path is not under home")
+    parts = [p for p in path_n[len(prefix):].split("/") if p]
+    if ".." in parts:
+        raise Fail("path must not contain ..")
+    return parts
+
+
+def open_owned_dir_under_home(home: str, abs_path: str, create: bool) -> int:
+    fd = open_home(home)
+    try:
+        for part in rel_parts_under_home(home, abs_path):
+            if part in (".", "..") or "/" in part or "\x00" in part:
+                raise Fail("bad path component")
+            try:
+                nxt = os.open(
+                    part,
+                    os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
+                    dir_fd=fd,
+                )
+            except FileNotFoundError:
+                if not create:
+                    raise Fail("missing directory")
+                os.mkdir(part, 0o700, dir_fd=fd)
+                nxt = os.open(
+                    part,
+                    os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
+                    dir_fd=fd,
+                )
+            except OSError as e:
+                raise Fail("refusing to follow a symlink") from e
+            os.close(fd)
+            fd = nxt
+            _is_owned_dir(os.fstat(fd))
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def read_at(dir_fd: int, name: str, cap: int) -> bytes:
+    flags = os.O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
+    fd = os.open(name, flags, dir_fd=dir_fd)
+    try:
+        st = os.fstat(fd)
+        _is_owned_file(st)
+        if st.st_size > cap:
+            raise Fail("file exceeds size bound")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            try:
+                buf = os.read(fd, 65536)
+            except BlockingIOError as e:
+                raise Fail("not a regular file") from e
+            if not buf:
+                break
+            total += len(buf)
+            if total > cap:
+                raise Fail("file exceeds size bound")
+            chunks.append(buf)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def write_at(dir_fd: int, name: str, data: bytes, cap: int) -> None:
+    if len(data) > cap:
+        raise Fail("write exceeds size bound")
+    tmp = f".{name}.{os.getpid()}.{time.time_ns():x}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW | O_CLOEXEC
+    fd = os.open(tmp, flags, 0o600, dir_fd=dir_fd)
+    try:
+        _is_owned_file(os.fstat(fd))
+        off = 0
+        while off < len(data):
+            off += os.write(fd, data[off:])
+        os.fsync(fd)
+    except Exception:
+        os.close(fd)
+        try:
+            os.unlink(tmp, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise
+    os.close(fd)
+    try:
+        st = os.lstat(name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        st = None
+    if st is not None:
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+            try:
+                os.unlink(tmp, dir_fd=dir_fd)
+            except OSError:
+                pass
+            raise Fail("refusing to overwrite a non-regular file")
+        if st.st_uid != uid():
+            try:
+                os.unlink(tmp, dir_fd=dir_fd)
+            except OSError:
+                pass
+            raise Fail("refusing to overwrite a file not owned by the user")
+    try:
+        os.rename(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except Exception:
+        try:
+            os.unlink(tmp, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise
+
+
+def read_json_at(dir_fd: int, name: str, cap: int) -> Any:
+    try:
+        raw = read_at(dir_fd, name, cap)
+    except Fail:
+        return None
+    except FileNotFoundError:
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def assert_allowed_url(url: str) -> None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        raise Fail("only https is allowed")
+    if parsed.username or parsed.password:
+        raise Fail("url must not contain userinfo")
+    host = parsed.hostname or ""
+    if host not in ALLOWED:
+        raise Fail("host is not allowlisted")
+    if parsed.port not in (None, 443):
+        raise Fail("port is not allowed")
+    if re.fullmatch(r"[0-9.]+", host) or ":" in host:
+        raise Fail("address literals are not allowed")
+    path = parsed.path or ""
+    if path != ALLOWED[host]:
+        raise Fail("path is not allowlisted")
+    if parsed.query or parsed.fragment:
+        raise Fail("query and fragment are not allowed")
+
+
+def fetch_url(url: str, etag: str, cap: int, timeout: int) -> dict[str, Any]:
+    assert_allowed_url(url)
+    headers = {
+        "User-Agent": "my-plugins/0.1.4 (Omarchy helper; github.com/dreed47/omarchy-my-plugins)",
+        "Accept": "application/json",
+        "Accept-Encoding": "identity",
+    }
+    if etag:
+        headers["If-None-Match"] = etag
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    ctx = ssl.create_default_context()
+    opener = urllib.request.build_opener(
+        NoRedirect(),
+        urllib.request.HTTPSHandler(context=ctx),
+    )
+    try:
+        resp = opener.open(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return {"status": 304, "etag": etag, "body": b""}
+        raise Fail(f"http {e.code}") from e
+    except urllib.error.URLError as e:
+        raise Fail("fetch failed") from e
+    try:
+        status = getattr(resp, "status", 200)
+        got_etag = resp.headers.get("ETag") or resp.headers.get("etag") or ""
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            buf = resp.read(65536)
+            if not buf:
+                break
+            total += len(buf)
+            if total > cap:
+                raise Fail("response exceeds size bound")
+            chunks.append(buf)
+        return {"status": int(status), "etag": got_etag, "body": b"".join(chunks)}
+    finally:
+        resp.close()
+
+
+def pretty_name(plugin_id: str) -> str:
+    last = plugin_id.split(".")[-1] if plugin_id else ""
+    return last.replace("-", " ").replace("_", " ").title()
+
+
+def github_user_from_id(plugin_id: str) -> str:
+    m = re.match(r"^io\.github\.([^.]+)\.", plugin_id, re.I)
+    return m.group(1) if m else ""
+
+
+def normalize_github_user(value: str) -> str:
+    s = str(value or "").strip().split()[0] if str(value or "").strip() else ""
+    s = re.sub(r"^https?://(www\.)?github\.com/", "", s, flags=re.I)
+    if s.startswith("@"):
+        s = s[1:]
+    s = re.split(r"[/?#]", s)[0]
+    if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", s or ""):
+        return ""
+    return s
+
+
+def parse_catalog(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return []
+    items = raw.get("plugins")
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("id") or "")
+        if not pid:
+            continue
+        out.append(
+            {
+                "id": pid,
+                "name": str(item.get("name") or pretty_name(pid)),
+                "description": str(item.get("description") or ""),
+                "author": str(item.get("author") or ""),
+                "version": str(item.get("version") or ""),
+                "repo": str(item.get("repo") or ""),
+                "listedAt": str(item.get("listedAt") or item.get("addedAt") or ""),
+                "kind": str(item.get("kind") or ""),
+                "category": str(item.get("category") or ""),
+                "stars": int(item.get("stars") or 0),
+                "verified": str(item.get("verificationStatus") or "") == "verified",
+                "verification": str(
+                    item.get("verificationCoverage") or item.get("verificationStatus") or ""
+                ),
+                "listed": True,
+                "local": False,
+                "views": 0,
+                "copies": 0,
+                "hearts": 0,
+            }
+        )
+    return out
+
+
+def parse_stats(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    plugins = raw.get("plugins")
+    return plugins if isinstance(plugins, dict) else {}
+
+
+def join_rows(plugins: list[dict[str, Any]], stats: dict[str, Any]) -> list[dict[str, Any]]:
+    out = []
+    for p in plugins:
+        row = dict(p)
+        s = stats.get(p["id"]) if isinstance(stats.get(p["id"]), dict) else {}
+        row["views"] = int(s.get("views") or 0)
+        row["copies"] = int(s.get("copies") or 0)
+        row["hearts"] = int(s.get("hearts") or 0)
+        out.append(row)
+    return out
+
+
+def matches_owner(plugin: dict[str, Any], owner: dict[str, str]) -> bool:
+    user = (owner.get("githubUser") or "").lower()
+    author = (owner.get("authorName") or "").lower()
+    prefix = (owner.get("idPrefix") or "").lower()
+    if not user and not author and not prefix:
+        return False
+    pid = str(plugin.get("id") or "").lower()
+    repo = str(plugin.get("repo") or "").lower()
+    plugin_author = str(plugin.get("author") or "").lower()
+    if prefix and pid.startswith(prefix):
+        return True
+    if user:
+        if pid.startswith("io.github." + user + "."):
+            return True
+        if repo.startswith("https://github.com/" + user + "/"):
+            return True
+    if author and plugin_author == author:
+        return True
+    return False
+
+
+def infer_github_user(installed: dict[str, Any], self_id: str) -> str:
+    counts: dict[str, int] = {}
+    for pid in installed:
+        if pid == self_id:
+            continue
+        user = github_user_from_id(pid)
+        if not user:
+            continue
+        counts[user] = counts.get(user, 0) + 1
+    best = ""
+    n = 0
+    for user, c in counts.items():
+        if c > n or (c == n and (best == "" or user < best)):
+            best = user
+            n = c
+    return best if n else ""
+
+
+def repo_guess(pid: str) -> str:
+    user = github_user_from_id(pid)
+    slug = pid.split(".")[-1] if pid else ""
+    if not user or not slug:
+        return ""
+    return f"https://github.com/{user}/omarchy-{slug}"
+
+
+def scan_installed(home: str, plugins_dir: str) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    try:
+        dir_fd = open_owned_dir_under_home(home, plugins_dir, create=False)
+    except Fail:
+        return out
+    try:
+        entries = os.listdir(dir_fd)
+        n = 0
+        for name in entries:
+            if n >= MAX_INSTALLED:
+                break
+            if name.startswith("."):
+                continue
+            try:
+                child = os.open(
+                    name,
+                    os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
+                    dir_fd=dir_fd,
+                )
+            except OSError:
+                continue
+            try:
+                _is_owned_dir(os.fstat(child))
+                raw = read_at(child, "manifest.json", MAX_MANIFEST_BYTES)
+                data = json.loads(raw.decode("utf-8"))
+                if not isinstance(data, dict) or not data.get("id"):
+                    continue
+                pid = str(data["id"])
+                out[pid] = {
+                    "id": pid,
+                    "name": str(data.get("name") or pretty_name(pid)),
+                    "version": str(data.get("version") or ""),
+                    "author": str(data.get("author") or ""),
+                    "dir": name,
+                }
+                n += 1
+            except (Fail, FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError, OSError):
+                continue
+            finally:
+                os.close(child)
+    finally:
+        os.close(dir_fd)
+    return out
+
+
+def merge_local(
+    owned: list[dict[str, Any]], installed: dict[str, Any], owner: dict[str, str]
+) -> list[dict[str, Any]]:
+    seen = {row["id"] for row in owned}
+    out = []
+    for row in owned:
+        rec = installed.get(row["id"])
+        if rec:
+            c = dict(row)
+            c["local"] = True
+            if not c.get("version") and rec.get("version"):
+                c["version"] = rec["version"]
+            out.append(c)
+        else:
+            out.append(row)
+    for pid, rec in installed.items():
+        if pid in seen:
+            continue
+        if not matches_owner(rec, owner):
+            continue
+        out.append(
+            {
+                "id": rec["id"],
+                "name": rec["name"],
+                "description": "",
+                "author": rec.get("author") or "",
+                "version": rec.get("version") or "",
+                "repo": repo_guess(rec["id"]),
+                "listedAt": "",
+                "kind": "",
+                "category": "",
+                "stars": 0,
+                "verified": False,
+                "verification": "unlisted",
+                "listed": False,
+                "local": True,
+                "views": 0,
+                "copies": 0,
+                "hearts": 0,
+            }
+        )
+    return out
+
+
+def totals(rows: list[dict[str, Any]]) -> dict[str, int]:
+    t = {
+        "plugins": 0,
+        "listed": 0,
+        "unlisted": 0,
+        "views": 0,
+        "copies": 0,
+        "hearts": 0,
+        "stars": 0,
+    }
+    for r in rows:
+        t["plugins"] += 1
+        if r.get("listed"):
+            t["listed"] += 1
+            t["views"] += int(r.get("views") or 0)
+            t["copies"] += int(r.get("copies") or 0)
+            t["hearts"] += int(r.get("hearts") or 0)
+            t["stars"] += int(r.get("stars") or 0)
+        else:
+            t["unlisted"] += 1
+    return t
+
+
+def sort_key_name(key: str) -> str:
+    k = (key or "views").lower()
+    if k in ("copies", "installs", "hearts", "stars", "newest", "name"):
+        return "copies" if k == "installs" else k
+    return "views"
+
+
+def sort_rows(rows: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    k = sort_key_name(key)
+    copy = list(rows)
+
+    def keyfn(a: dict[str, Any]) -> tuple:
+        name = str(a.get("name") or "").lower()
+        if k == "name":
+            return (name,)
+        if k == "newest":
+            ts = 0.0
+            try:
+                ts = time.mktime(time.strptime(str(a.get("listedAt") or "")[:19], "%Y-%m-%dT%H:%M:%S"))
+            except (ValueError, OverflowError):
+                ts = 0.0
+            return (-ts, name)
+        listed = 0 if a.get("listed") else 1
+        return (listed, -int(a.get(k) or 0), name)
+
+    copy.sort(key=keyfn)
+    return copy
+
+
+def emit(payload: dict[str, Any]) -> None:
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    if len(raw) > MAX_STDOUT_BYTES:
+        raw = json.dumps(
+            {"ok": False, "error": "output exceeds size bound", "rows": [], "totals": totals([])},
+            separators=(",", ":"),
+        ).encode("utf-8")
+    sys.stdout.buffer.write(raw)
+    sys.stdout.buffer.write(b"\n")
+
+
+def cmd_sync(args: argparse.Namespace) -> int:
+    state_fd = open_owned_dir_under_home(args.home, args.state_dir, create=True)
+    try:
+        internal = read_json_at(state_fd, "internal.json", MAX_INTERNAL_BYTES) or {}
+        if not isinstance(internal, dict):
+            internal = {}
+        catalog_etag = str(internal.get("catalogEtag") or "")
+        catalog_at = float(internal.get("catalogFetchedAt") or 0)
+        stats_at = float(internal.get("statsFetchedAt") or 0)
+        now_ms = time.time() * 1000
+        force = bool(args.force)
+        error = ""
+
+        if force or (now_ms - catalog_at) / 1000 >= CATALOG_MAX_AGE_SEC:
+            try:
+                got = fetch_url(CATALOG_URL, catalog_etag, MAX_CATALOG_BYTES, FETCH_TIMEOUT_SEC)
+                if got["status"] == 304:
+                    catalog_at = now_ms
+                elif got["status"] == 200 and got["body"]:
+                    json.loads(got["body"].decode("utf-8"))
+                    write_at(state_fd, "catalog.json", got["body"], MAX_CATALOG_BYTES)
+                    catalog_etag = str(got["etag"] or "")
+                    catalog_at = now_ms
+                else:
+                    error = "catalog fetch failed"
+            except (Fail, UnicodeDecodeError, json.JSONDecodeError) as e:
+                error = str(e) if str(e) else "catalog fetch failed"
+
+        if force or (now_ms - stats_at) / 1000 >= STATS_MAX_AGE_SEC:
+            try:
+                got = fetch_url(STATS_URL, "", MAX_STATS_BYTES, FETCH_TIMEOUT_SEC)
+                if got["status"] == 200 and got["body"]:
+                    json.loads(got["body"].decode("utf-8"))
+                    write_at(state_fd, "stats.json", got["body"], MAX_STATS_BYTES)
+                    stats_at = now_ms
+                else:
+                    if not error:
+                        error = "stats fetch failed"
+            except (Fail, UnicodeDecodeError, json.JSONDecodeError) as e:
+                if not error:
+                    error = str(e) if str(e) else "stats fetch failed"
+
+        write_at(
+            state_fd,
+            "internal.json",
+            json.dumps(
+                {
+                    "catalogEtag": catalog_etag,
+                    "catalogFetchedAt": catalog_at,
+                    "statsFetchedAt": stats_at,
+                }
+            ).encode("utf-8"),
+            MAX_INTERNAL_BYTES,
+        )
+
+        catalog = parse_catalog(read_json_at(state_fd, "catalog.json", MAX_CATALOG_BYTES) or {})
+        stats = parse_stats(read_json_at(state_fd, "stats.json", MAX_STATS_BYTES) or {})
+        joined = join_rows(catalog, stats)
+        installed = scan_installed(args.home, args.plugins_dir) if args.plugins_dir else {}
+        self_id = "io.github.dreed47.my-plugins"
+        configured = normalize_github_user(args.github_user)
+        guessed = infer_github_user(installed, self_id)
+        owner = {
+            "githubUser": configured or guessed,
+            "authorName": (args.author_name or "").strip(),
+            "idPrefix": (args.id_prefix or "").strip(),
+        }
+        owned = [row for row in joined if matches_owner(row, owner)]
+        if str(args.show_unlisted).lower() in ("on", "true", "1"):
+            owned = merge_local(owned, installed, owner)
+        owned = sort_rows(owned, args.sort)
+        payload = {
+            "ok": True,
+            "error": error,
+            "guessedUser": guessed,
+            "userIsGuessed": configured == "",
+            "owner": owner,
+            "rows": owned,
+            "totals": totals(owned),
+        }
+        emit(payload)
+        return 0
+    finally:
+        os.close(state_fd)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="my-plugins")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sync = sub.add_parser("sync")
+    sync.add_argument("--home", required=True)
+    sync.add_argument("--state-dir", required=True)
+    sync.add_argument("--plugins-dir", default="")
+    sync.add_argument("--github-user", default="")
+    sync.add_argument("--author-name", default="")
+    sync.add_argument("--id-prefix", default="")
+    sync.add_argument("--show-unlisted", default="On")
+    sync.add_argument("--sort", default="Views")
+    sync.add_argument("--force", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        if args.cmd == "sync":
+            return cmd_sync(args)
+        raise Fail("unknown command")
+    except Fail as e:
+        emit({"ok": False, "error": str(e), "rows": [], "totals": totals([]), "guessedUser": "", "owner": {}})
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

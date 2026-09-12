@@ -1,10 +1,10 @@
 {
   "name": "omarchy-my-plugins",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Omarchy bar dashboard of the plugins you own and their marketplace stats.",
   "private": true,
   "scripts": {
-    "test": "node --test tests/model.test.js"
+    "test": "node --test tests/model.test.js && python3 -m unittest tests/test_helper.py"
   },
   "repository": {
     "type": "git",
