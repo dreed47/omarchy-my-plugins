@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 — 2026-09-12
+
+- Reject group- or world-writable directories on the HOME → state/plugins walk. Plugin-owned state leaf is forced to `0700` and cache files to `0600` via `fchmod` on the opened fd (survives umask). Shared ancestors are not chmod'd. Group-writable plugin checkouts are skipped, not followed.
+
 ## 0.1.4 — 2026-09-11
 
 - Address marketplace supply-chain review: one `/usr/bin/python3 -I` helper with a closed environment, no `bash -c`, host-allowlisted HTTPS, hard process deadline, bounded stdout, and cache I/O descriptor-relative under an ownership-checked no-follow directory.

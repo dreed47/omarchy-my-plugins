@@ -86,7 +86,7 @@ omarchy bar set io.github.dreed47.my-plugins showUnlisted On
 | `barHearts` | `Off` | Hearts total on the bar pill |
 | `barStars` | `Off` | GitHub stars total on the bar pill |
 
-Catalog refreshes at most every 6 hours (conditional GET). Stats refresh every 30 minutes. Cache lives in `~/.local/state/omarchy/my-plugins/`, created and opened without following symlinks. Network and filesystem work run in `scripts/my-plugins` as `/usr/bin/python3 -I` with `PATH=/usr/bin:/bin` and no inherited environment.
+Catalog refreshes at most every 6 hours (conditional GET). Stats refresh every 30 minutes. Cache lives in `~/.local/state/omarchy/my-plugins/` (`0700`, files `0600`), created and opened without following symlinks. Every directory on the walk from `$HOME` is refused if it is group- or world-writable; shared ancestors are not chmod'd. Network and filesystem work run in `scripts/my-plugins` as `/usr/bin/python3 -I` with `PATH=/usr/bin:/bin` and no inherited environment.
 
 ## Remove
 
