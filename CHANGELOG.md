@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8 — 2026-09-14
+
+- Track open marketplace listing and verification issues (read-only GitHub search). Session Restore shows `in review #6398` while that issue is open. Press `i` to open it. No GitHub token; a search failure leaves catalog stats alone.
+
 ## 0.1.7 — 2026-09-12
 
 - Unlisted plugin repo links come from `.git/config` origin (so Tempest Weather opens `dreed47/tempest-weather`, not a guessed `omarchy-tempest-weather`). The guess remains only when there is no origin.

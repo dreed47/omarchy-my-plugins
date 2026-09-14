@@ -150,6 +150,19 @@ test("listingUrl and repoUrl refuse hostile values", () => {
   assert.equal(Model.repoUrl("https://github.com/dreed47/omarchy-print-center"), "https://github.com/dreed47/omarchy-print-center")
   assert.equal(Model.repoUrl("https://evil.example/x"), "")
   assert.equal(Model.repoUrl("https://github.com/dreed47/omarchy-print-center\nrm"), "")
+  assert.equal(Model.issueUrl("https://github.com/omacom/omarchy-plugin-marketplace/issues/6398"), "https://github.com/omacom/omarchy-plugin-marketplace/issues/6398")
+  assert.equal(Model.issueUrl("https://github.com/evil/evil/issues/1"), "")
+})
+
+test("verificationLabel prefers open issue status", () => {
+  assert.equal(Model.verificationLabel({
+    listed: true,
+    verification: "update-unverified",
+    issueState: "open",
+    issueStatus: "in review",
+    issueNumber: 6398,
+  }), "in review #6398")
+  assert.equal(Model.verificationLabel({ listed: false }), "not listed")
 })
 
 test("parseHttpResponse splits status etag and body, keeps 304 empty", () => {

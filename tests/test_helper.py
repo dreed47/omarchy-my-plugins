@@ -75,6 +75,43 @@ class HelperTests(unittest.TestCase):
             helper.assert_allowed_url("http://plugins.omarchy.org/catalog.json")
         helper.assert_allowed_url("https://plugins.omarchy.org/catalog.json")
         helper.assert_allowed_url("https://api.omarchyplugins.com/v1/stats")
+        helper.assert_allowed_url(helper.github_search_url("dreed47"))
+        with self.assertRaises(helper.Fail):
+            helper.assert_allowed_url("https://api.github.com/repos/omacom/omarchy-plugin-marketplace/issues/6398")
+        with self.assertRaises(helper.Fail):
+            helper.assert_allowed_url("https://api.github.com/search/issues?q=repo:evil/evil+is:issue+author:dreed47")
+
+    def test_parse_and_attach_verification_issue(self):
+        raw = {
+            "items": [{
+                "number": 6398,
+                "html_url": "https://github.com/omacom/omarchy-plugin-marketplace/issues/6398",
+                "state": "open",
+                "title": "[Verify]: new version 2.4.0",
+                "labels": [
+                    {"name": "plugin-update"},
+                    {"name": "validated"},
+                    {"name": "security-review-required"},
+                ],
+                "body": "### Plugin ID\n\nio.github.dreed47.session-restore\n",
+            }]
+        }
+        issues = helper.parse_marketplace_issues(raw)
+        self.assertEqual(issues[0]["kind"], "verify")
+        self.assertEqual(helper.issue_status_label(issues[0]), "in review")
+        rows = helper.attach_issues(
+            [{"id": "io.github.dreed47.session-restore", "repo": "https://github.com/dreed47/omarchy-session-restore"}],
+            issues,
+        )
+        self.assertEqual(rows[0]["issueNumber"], 6398)
+        self.assertEqual(rows[0]["issueStatus"], "in review")
+        closed = dict(raw["items"][0], state="closed", number=5770,
+                      html_url="https://github.com/omacom/omarchy-plugin-marketplace/issues/5770")
+        attached = helper.attach_issues(
+            [{"id": "io.github.dreed47.session-restore"}],
+            helper.parse_marketplace_issues({"items": [closed]}),
+        )
+        self.assertEqual(attached[0]["issueNumber"], 0)
 
     def test_state_dir_refuses_symlink(self):
         with tempfile.TemporaryDirectory() as home:

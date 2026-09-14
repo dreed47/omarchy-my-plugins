@@ -58,6 +58,7 @@ Keyboard, while the popup is open:
 | `j` / `k` or arrows | Move |
 | `Enter` | Open the marketplace listing (or the repo if it is not listed) |
 | `o` | Open the GitHub repo |
+| `i` | Open the marketplace verify/listing issue, if one is open |
 | `s` | Settings (GitHub user) |
 | `t` | Cycle sort (views, copies, hearts, stars, newest, name) |
 | `r` | Refresh |
@@ -86,7 +87,7 @@ omarchy bar set io.github.dreed47.my-plugins showUnlisted On
 | `barHearts` | `Off` | Hearts total on the bar pill |
 | `barStars` | `Off` | GitHub stars total on the bar pill |
 
-Catalog refreshes at most every 6 hours (conditional GET). Stats refresh every 30 minutes. Cache lives in `~/.local/state/omarchy/my-plugins/` (`0700`, files `0600`), created and opened without following symlinks. Every directory on the walk from `$HOME` is refused if it is group- or world-writable; shared ancestors are not chmod'd. Network and filesystem work run in `scripts/my-plugins` as `/usr/bin/python3 -I` with `PATH=/usr/bin:/bin` and no inherited environment.
+Catalog refreshes at most every 6 hours (conditional GET). Stats and GitHub issue search refresh every 30 minutes. Cache lives in `~/.local/state/omarchy/my-plugins/` (`0700`, files `0600`), created and opened without following symlinks. Every directory on the walk from `$HOME` is refused if it is group- or world-writable; shared ancestors are not chmod'd. Network and filesystem work run in `scripts/my-plugins` as `/usr/bin/python3 -I` with `PATH=/usr/bin:/bin` and no inherited environment. GitHub search is unauthenticated and allowlisted to `api.github.com/search/issues` for the public marketplace repo only.
 
 ## Remove
 

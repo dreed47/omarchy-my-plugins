@@ -148,6 +148,12 @@ Panel {
     root.openUrl(Model.repoUrl(r.repo))
   }
 
+  function openIssue(row) {
+    var r = row || root.currentRow()
+    if (!r) return
+    root.openUrl(Model.issueUrl(r.issueUrl))
+  }
+
   function cycleSort() {
     var current = Model.sortKey(svc ? svc.sortMode : "views")
     var next = Model.nextSort(current)
@@ -269,6 +275,7 @@ Panel {
         else if (text === "o") root.openRepo()
         else if (text === "t") root.cycleSort()
         else if (text === "s") root.startEditingSettings()
+        else if (text === "i") root.openIssue()
         else if (text === "j") root.moveCursor(1)
         else if (text === "k") root.moveCursor(-1)
       }
@@ -514,7 +521,9 @@ Panel {
                       var badge = Model.verificationLabel(modelData)
                       return [ver, badge].filter(function (s) { return s !== "" }).join("  ·  ")
                     }
-                    color: modelData.listed ? root.dim : (root.bar ? root.bar.urgent : Color.urgent)
+                    color: (modelData.issueStatus === "blocked" || !modelData.listed)
+                      ? (root.bar ? root.bar.urgent : Color.urgent)
+                      : root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     textFormat: Text.PlainText
@@ -571,7 +580,7 @@ Panel {
         Text {
           width: parent.width
           visible: root.rows.length > 0
-          text: "Copies are marketplace install-command copies, not installs.  Enter listing  ·  o repo  ·  s settings  ·  t sort  ·  r refresh"
+          text: "Copies are marketplace install-command copies, not installs.  Enter listing  ·  o repo  ·  i issue  ·  s settings  ·  t sort  ·  r refresh"
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption

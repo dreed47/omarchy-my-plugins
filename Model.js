@@ -441,6 +441,10 @@ function statText(n, listed) {
 
 function verificationLabel(row) {
   if (!row) return ""
+  if (row.issueState === "open" && row.issueStatus) {
+    var n = Number(row.issueNumber) || 0
+    return n ? (String(row.issueStatus) + " #" + n) : String(row.issueStatus)
+  }
   if (!row.listed) return "not listed"
   if (row.verification === "snapshot-verified" || row.verified) return "verified"
   if (row.verification) return String(row.verification)
@@ -456,6 +460,11 @@ function listingUrl(id) {
 function repoUrl(repo) {
   var s = String(repo || "").trim()
   return /^https:\/\/github\.com\/[A-Za-z0-9._\/-]+$/.test(s) ? s : ""
+}
+
+function issueUrl(url) {
+  var s = String(url || "").trim()
+  return /^https:\/\/github\.com\/omacom\/omarchy-plugin-marketplace\/issues\/[1-9][0-9]{0,8}$/.test(s) ? s : ""
 }
 
 function ageText(listedAt, nowMs) {
@@ -578,6 +587,7 @@ if (typeof module !== "undefined") {
     verificationLabel: verificationLabel,
     listingUrl: listingUrl,
     repoUrl: repoUrl,
+    issueUrl: issueUrl,
     ageText: ageText,
     flagOn: flagOn,
     onOff: onOff,

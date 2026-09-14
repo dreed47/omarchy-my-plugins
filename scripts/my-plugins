@@ -25,20 +25,31 @@ from typing import Any
 
 MAX_CATALOG_BYTES = 16 * 1024 * 1024
 MAX_STATS_BYTES = 1 * 1024 * 1024
+MAX_GITHUB_BYTES = 256 * 1024
 MAX_INTERNAL_BYTES = 64 * 1024
 MAX_MANIFEST_BYTES = 8192
 MAX_INSTALLED = 256
 MAX_STDOUT_BYTES = 256 * 1024
 CATALOG_MAX_AGE_SEC = 21600
 STATS_MAX_AGE_SEC = 1800
+GITHUB_MAX_AGE_SEC = 1800
 FETCH_TIMEOUT_SEC = 25
 
 CATALOG_URL = "https://plugins.omarchy.org/catalog.json"
 STATS_URL = "https://api.omarchyplugins.com/v1/stats"
-ALLOWED = {
-    "plugins.omarchy.org": "/catalog.json",
-    "api.omarchyplugins.com": "/v1/stats",
+ALLOWED_PATHS = {
+    "plugins.omarchy.org": {"/catalog.json": False},
+    "api.omarchyplugins.com": {"/v1/stats": False},
+    "api.github.com": {"/search/issues": True},
 }
+PLUGIN_ID_RE = re.compile(r"\b(io\.github\.[A-Za-z0-9._-]{1,80})\b")
+REPO_URL_RE = re.compile(r"https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)")
+ISSUE_URL_RE = re.compile(
+    r"^https://github\.com/omacom/omarchy-plugin-marketplace/issues/([1-9][0-9]{0,8})$"
+)
+GITHUB_SEARCH_Q_RE = re.compile(
+    r"^repo:omacom/omarchy-plugin-marketplace is:issue author:[A-Za-z0-9-]+$"
+)
 
 O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
@@ -274,6 +285,19 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def assert_github_search_query(query: str, fragment: str) -> None:
+    if fragment:
+        raise Fail("fragment is not allowed")
+    qs = urllib.parse.parse_qs(query, keep_blank_values=False)
+    if set(qs.keys()) - {"q", "per_page"}:
+        raise Fail("query is not allowlisted")
+    q = (qs.get("q") or [""])[0]
+    if not GITHUB_SEARCH_Q_RE.fullmatch(q):
+        raise Fail("query is not allowlisted")
+    if "per_page" in qs and qs.get("per_page") != ["30"]:
+        raise Fail("query is not allowlisted")
+
+
 def assert_allowed_url(url: str) -> None:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https":
@@ -281,24 +305,38 @@ def assert_allowed_url(url: str) -> None:
     if parsed.username or parsed.password:
         raise Fail("url must not contain userinfo")
     host = parsed.hostname or ""
-    if host not in ALLOWED:
+    if host not in ALLOWED_PATHS:
         raise Fail("host is not allowlisted")
     if parsed.port not in (None, 443):
         raise Fail("port is not allowed")
     if re.fullmatch(r"[0-9.]+", host) or ":" in host:
         raise Fail("address literals are not allowed")
     path = parsed.path or ""
-    if path != ALLOWED[host]:
+    allow_query = ALLOWED_PATHS[host].get(path)
+    if allow_query is None:
         raise Fail("path is not allowlisted")
+    if allow_query:
+        assert_github_search_query(parsed.query, parsed.fragment)
+        return
     if parsed.query or parsed.fragment:
         raise Fail("query and fragment are not allowed")
+
+
+def github_search_url(github_user: str) -> str:
+    user = normalize_github_user(github_user)
+    if not user:
+        return ""
+    q = f"repo:omacom/omarchy-plugin-marketplace is:issue author:{user}"
+    return "https://api.github.com/search/issues?" + urllib.parse.urlencode(
+        {"q": q, "per_page": "30"}
+    )
 
 
 def fetch_url(url: str, etag: str, cap: int, timeout: int) -> dict[str, Any]:
     assert_allowed_url(url)
     headers = {
-        "User-Agent": "my-plugins/0.1.5 (Omarchy helper; github.com/dreed47/omarchy-my-plugins)",
-        "Accept": "application/json",
+        "User-Agent": "my-plugins/0.1.8 (Omarchy helper; github.com/dreed47/omarchy-my-plugins)",
+        "Accept": "application/vnd.github+json" if "api.github.com" in url else "application/json",
         "Accept-Encoding": "identity",
     }
     if etag:
@@ -638,6 +676,123 @@ def merge_local(
     return out
 
 
+def parse_marketplace_issues(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return []
+    items = raw.get("items")
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in items[:30]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            number = int(item.get("number") or 0)
+        except (TypeError, ValueError):
+            continue
+        if number <= 0:
+            continue
+        html = str(item.get("html_url") or "")
+        if not ISSUE_URL_RE.fullmatch(html):
+            continue
+        state = str(item.get("state") or "")
+        if state not in ("open", "closed"):
+            continue
+        labels: list[str] = []
+        for lab in item.get("labels") or []:
+            name = lab.get("name") if isinstance(lab, dict) else ""
+            if name:
+                labels.append(str(name)[:64])
+            if len(labels) >= 12:
+                break
+        body = str(item.get("body") or "")
+        ids = list(dict.fromkeys(PLUGIN_ID_RE.findall(body)))[:8]
+        repos: list[str] = []
+        for user, name in REPO_URL_RE.findall(body):
+            if name.endswith(".git"):
+                name = name[:-4]
+            repos.append(f"https://github.com/{user}/{name}")
+            if len(repos) >= 8:
+                break
+        title = str(item.get("title") or "")[:200]
+        if "plugin-update" in labels or title.startswith("[Verify]"):
+            kind = "verify"
+        elif "submission" in labels or title.startswith("[Plugin]"):
+            kind = "listing"
+        else:
+            kind = "other"
+        if kind == "other" and not ids:
+            continue
+        out.append(
+            {
+                "number": number,
+                "url": html,
+                "state": state,
+                "title": title,
+                "labels": labels,
+                "pluginIds": ids,
+                "repos": repos,
+                "kind": kind,
+            }
+        )
+    return out
+
+
+def issue_status_label(iss: dict[str, Any]) -> str:
+    if iss.get("state") != "open":
+        return ""
+    labels = iss.get("labels") or []
+    if "security-needs-fixes" in labels:
+        return "blocked"
+    if "security-review-required" in labels:
+        return "in review"
+    if "plugin-update" in labels or iss.get("kind") == "verify":
+        return "verify filed"
+    if "submission" in labels or iss.get("kind") == "listing":
+        return "listing filed"
+    return "issue open"
+
+
+def _issue_rank(iss: dict[str, Any]) -> tuple:
+    open_rank = 0 if iss.get("state") == "open" else 1
+    kind_rank = {"verify": 0, "listing": 1, "other": 2}.get(str(iss.get("kind") or ""), 9)
+    return (open_rank, kind_rank, -int(iss.get("number") or 0))
+
+
+def attach_issues(rows: list[dict[str, Any]], issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    best_id: dict[str, dict[str, Any]] = {}
+    best_repo: dict[str, dict[str, Any]] = {}
+    for iss in issues:
+        if iss.get("state") != "open":
+            continue
+        for pid in iss.get("pluginIds") or []:
+            prev = best_id.get(pid)
+            if prev is None or _issue_rank(iss) < _issue_rank(prev):
+                best_id[pid] = iss
+        for repo in iss.get("repos") or []:
+            prev = best_repo.get(repo)
+            if prev is None or _issue_rank(iss) < _issue_rank(prev):
+                best_repo[repo] = iss
+    out = []
+    for row in rows:
+        c = dict(row)
+        iss = best_id.get(str(c.get("id") or "")) or best_repo.get(str(c.get("repo") or ""))
+        if not iss:
+            c["issueNumber"] = 0
+            c["issueUrl"] = ""
+            c["issueState"] = ""
+            c["issueKind"] = ""
+            c["issueStatus"] = ""
+        else:
+            c["issueNumber"] = int(iss["number"])
+            c["issueUrl"] = str(iss["url"])
+            c["issueState"] = str(iss["state"])
+            c["issueKind"] = str(iss["kind"])
+            c["issueStatus"] = issue_status_label(iss)
+        out.append(c)
+    return out
+
+
 def totals(rows: list[dict[str, Any]]) -> dict[str, int]:
     t = {
         "plugins": 0,
@@ -711,6 +866,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         catalog_etag = str(internal.get("catalogEtag") or "")
         catalog_at = float(internal.get("catalogFetchedAt") or 0)
         stats_at = float(internal.get("statsFetchedAt") or 0)
+        github_at = float(internal.get("githubFetchedAt") or 0)
         now_ms = time.time() * 1000
         force = bool(args.force)
         error = ""
@@ -752,6 +908,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
                     "catalogEtag": catalog_etag,
                     "catalogFetchedAt": catalog_at,
                     "statsFetchedAt": stats_at,
+                    "githubFetchedAt": github_at,
                 }
             ).encode("utf-8"),
             MAX_INTERNAL_BYTES,
@@ -773,6 +930,39 @@ def cmd_sync(args: argparse.Namespace) -> int:
         if str(args.show_unlisted).lower() in ("on", "true", "1"):
             owned = merge_local(owned, installed, owner)
         owned = sort_rows(owned, args.sort)
+
+        search = github_search_url(owner["githubUser"])
+        if search and (force or (now_ms - github_at) / 1000 >= GITHUB_MAX_AGE_SEC):
+            try:
+                got = fetch_url(search, "", MAX_GITHUB_BYTES, FETCH_TIMEOUT_SEC)
+                if got["status"] == 200 and got["body"]:
+                    parsed = parse_marketplace_issues(json.loads(got["body"].decode("utf-8")))
+                    write_at(
+                        state_fd,
+                        "github.json",
+                        json.dumps(parsed).encode("utf-8"),
+                        MAX_GITHUB_BYTES,
+                    )
+                    github_at = now_ms
+                    write_at(
+                        state_fd,
+                        "internal.json",
+                        json.dumps(
+                            {
+                                "catalogEtag": catalog_etag,
+                                "catalogFetchedAt": catalog_at,
+                                "statsFetchedAt": stats_at,
+                                "githubFetchedAt": github_at,
+                            }
+                        ).encode("utf-8"),
+                        MAX_INTERNAL_BYTES,
+                    )
+            except (Fail, UnicodeDecodeError, json.JSONDecodeError, OSError):
+                # Tracking is optional; a GitHub blip must not hide catalog stats.
+                pass
+        issues_raw = read_json_at(state_fd, "github.json", MAX_GITHUB_BYTES) or []
+        issues = issues_raw if isinstance(issues_raw, list) else parse_marketplace_issues(issues_raw)
+        owned = attach_issues(owned, issues)
         payload = {
             "ok": True,
             "error": error,
